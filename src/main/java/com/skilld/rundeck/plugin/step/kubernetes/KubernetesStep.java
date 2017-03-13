@@ -81,6 +81,8 @@ public class KubernetesStep implements StepPlugin, Describable {
 	public static final String RESTART_POLICY = "restartPolicy";
 	public static final String COMPLETIONS = "completions";
 	public static final String PARALLELISM = "parallelism";
+	public static final String BCLNAME = "bclName";
+	public static final String SECRETNAME = "secretName";
 
 	public static enum Reason implements FailureReason {
 		UnexepectedFailure
@@ -91,20 +93,22 @@ public class KubernetesStep implements StepPlugin, Describable {
 	}
 
 	static Description DESC = DescriptionBuilder.builder()
-		.name(STEP_NAME)
-		.title("Kubernetes")
-		.description("Runs a Kubernetes job")
-		.property(PropertyUtil.string(IMAGE, "Image", "The container image to use", true, null))
-		.property(PropertyUtil.string(IMAGE_PULL_SECRETS, "ImagePullSecrets", "The image pull secrets name", false, null))
-		.property(PropertyUtil.string(COMMAND, "Command", "The command to run in the container", false, null))
-		.property(PropertyUtil.string(ARGUMENTS, "Arguments", "The command arguments", false, null))
-		.property(PropertyUtil.string(NODE_SELECTOR, "Node selector", "Kubernetes node label selector", false, null))
-		.property(PropertyUtil.string(NAMESPACE, "Namespace", "Kubernetes namespace", true, "default"))
-		.property(PropertyUtil.integer(ACTIVE_DEADLINE, "Active deadline", "The job deadline (in seconds)", false, null))
-		.property(PropertyUtil.select(RESTART_POLICY, "Restart policy", "The restart policy to apply to the job", true, "Never", Arrays.asList("Never", "OnFailure")))
-		.property(PropertyUtil.integer(COMPLETIONS, "Completions", "Number of pods to wait for success exit before considering the job complete", true, "1"))
-		.property(PropertyUtil.integer(PARALLELISM, "Parallelism", "Number of pods running at any instant", true, "1"))
-		.build();
+	    	.name(STEP_NAME)
+	    	.title("Kubernetes")
+	    	.description("Runs a Kubernetes job")
+	    	.property(PropertyUtil.string(IMAGE, "Image", "The container image to use", true, null))
+	    	.property(PropertyUtil.string(IMAGE_PULL_SECRETS, "ImagePullSecrets", "The image pull secrets name", false, null))
+	    	.property(PropertyUtil.string(COMMAND, "Command", "The command to run in the container", false, null))
+	    	.property(PropertyUtil.string(ARGUMENTS, "Arguments", "The command arguments", false, null))
+	    	.property(PropertyUtil.string(NODE_SELECTOR, "Node selector", "Kubernetes node label selector", false, null))
+	    	.property(PropertyUtil.string(NAMESPACE, "Namespace", "Kubernetes namespace", true, "default"))
+	    	.property(PropertyUtil.integer(ACTIVE_DEADLINE, "Active deadline", "The job deadline (in seconds)", false, null))
+	    	.property(PropertyUtil.select(RESTART_POLICY, "Restart policy", "The restart policy to apply to the job", true, "Never", Arrays.asList("Never", "OnFailure")))
+	    	.property(PropertyUtil.integer(COMPLETIONS, "Completions", "Number of pods to wait for success exit before considering the job complete", true, "1"))
+		    .property(PropertyUtil.integer(PARALLELISM, "Parallelism", "Number of pods running at any instant", true, "1"))
+	    	.property(PropertyUtil.string(BCLNAME, "BCL Name", "The name of the BCL to process", true, null))
+            .property(PropertyUtil.string(SECRETNAME, "Secret name", "The name of the kubernetes secret to add to /root/.aws", true, null))
+            .build();
 
 	public Description getDescription() {
 		return DESC;
@@ -115,6 +119,10 @@ public class KubernetesStep implements StepPlugin, Describable {
 		Config clientConfiguration = new ConfigBuilder().withWatchReconnectLimit(2).build();
 		try (KubernetesClient client = new DefaultKubernetesClient(clientConfiguration)) {
 			String jobName = context.getDataContext().get("job").get("name").toString().toLowerCase() + "-" + context.getDataContext().get("job").get("execid");
+			String bclName = configuration.get("bclName").toString();
+			String dataVolumeName = "datavolume";
+			String secretVolumeName = "secretvolume";
+			String pvcName = bclName.substring(bclName.lastIndexOf("_") + 1).toLowerCase();
 			String namespace = configuration.get("namespace").toString();
 			Map<String, String> labels = new HashMap<String, String>();
 			labels.put("job-name", jobName);
@@ -139,7 +147,19 @@ public class KubernetesStep implements StepPlugin, Describable {
 							.addNewContainer()
 								.withName(jobName)
 								.withImage(configuration.get("image").toString())
+								.addNewVolumeMount("/root/.aws", secretVolumeName, false, "")
+								.addNewVolumeMount("/data", dataVolumeName, false, "")
 							.endContainer()
+							.addNewVolume()
+								.withName(dataVolumeName)
+								.withNewPersistentVolumeClaim(pvcName, false)
+							.endVolume()
+							.addNewVolume()
+								.withName(secretVolumeName)
+								.withNewSecret()
+									.withSecretName(configuration.get("secretName").toString())
+								.endSecret()
+							.endVolume()
 						.endSpec()
 					.endTemplate()
 				.endSpec();
@@ -253,16 +273,8 @@ public class KubernetesStep implements StepPlugin, Describable {
 					}
 					jobWatch.close();
 					podWatch.close();
-					client.extensions().jobs().inNamespace(namespace).withName(jobName).delete();
 					PodList podList = client.pods().inNamespace(namespace).withLabel("job-name", jobName).list();
 					String name = null;
-					for (Pod pod : podList.getItems()) {
-						name = pod.getMetadata().getName();
-						if(pod.getStatus().getPhase().equals("Pending")) {
-							pluginLogger.log(0, name + " : Timeout");
-						}
-						client.pods().inNamespace(namespace).withName(name).delete();
-					}
 					client.close();
 				} catch (KubernetesClientException | InterruptedException e) {
 					logger.error(e.getMessage(), e);
