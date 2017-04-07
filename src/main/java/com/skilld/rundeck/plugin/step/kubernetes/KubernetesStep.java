@@ -119,10 +119,9 @@ public class KubernetesStep implements StepPlugin, Describable {
 		Config clientConfiguration = new ConfigBuilder().withWatchReconnectLimit(2).build();
 		try (KubernetesClient client = new DefaultKubernetesClient(clientConfiguration)) {
 			String jobName = context.getDataContext().get("job").get("name").toString().toLowerCase() + "-" + context.getDataContext().get("job").get("execid");
-			String pvcName = configuration.get("pvcName").toString();
+			String pvcName = configuration.get("pvcName").toString().toLowerCase();
 			String dataVolumeName = "datavolume";
 			String secretVolumeName = "secretvolume";
-			String pvcName = pvcName.substring(pvcName).toLowerCase();
 			String namespace = configuration.get("namespace").toString();
 			Map<String, String> labels = new HashMap<String, String>();
 			labels.put("job-name", jobName);
