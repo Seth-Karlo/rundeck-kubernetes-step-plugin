@@ -81,7 +81,7 @@ public class KubernetesStep implements StepPlugin, Describable {
 	public static final String RESTART_POLICY = "restartPolicy";
 	public static final String COMPLETIONS = "completions";
 	public static final String PARALLELISM = "parallelism";
-	public static final String BCLNAME = "bclName";
+	public static final String PVCNAME = "pvcName";
 	public static final String SECRETNAME = "secretName";
 
 	public static enum Reason implements FailureReason {
@@ -106,7 +106,7 @@ public class KubernetesStep implements StepPlugin, Describable {
 	    	.property(PropertyUtil.select(RESTART_POLICY, "Restart policy", "The restart policy to apply to the job", true, "Never", Arrays.asList("Never", "OnFailure")))
 	    	.property(PropertyUtil.integer(COMPLETIONS, "Completions", "Number of pods to wait for success exit before considering the job complete", true, "1"))
 		    .property(PropertyUtil.integer(PARALLELISM, "Parallelism", "Number of pods running at any instant", true, "1"))
-	    	.property(PropertyUtil.string(BCLNAME, "BCL Name", "The name of the BCL to process", true, null))
+	    	.property(PropertyUtil.string(PVCNAME, ":PVC Name", "The name of the PVC to use in this job", true, null))
             .property(PropertyUtil.string(SECRETNAME, "Secret name", "The name of the kubernetes secret to add to /root/.aws", true, null))
             .build();
 
@@ -119,10 +119,10 @@ public class KubernetesStep implements StepPlugin, Describable {
 		Config clientConfiguration = new ConfigBuilder().withWatchReconnectLimit(2).build();
 		try (KubernetesClient client = new DefaultKubernetesClient(clientConfiguration)) {
 			String jobName = context.getDataContext().get("job").get("name").toString().toLowerCase() + "-" + context.getDataContext().get("job").get("execid");
-			String bclName = configuration.get("bclName").toString();
+			String pvcName = configuration.get("pvcName").toString();
 			String dataVolumeName = "datavolume";
 			String secretVolumeName = "secretvolume";
-			String pvcName = bclName.substring(bclName.lastIndexOf("_") + 1).toLowerCase();
+			String pvcName = pvcName.substring(pvcName).toLowerCase();
 			String namespace = configuration.get("namespace").toString();
 			Map<String, String> labels = new HashMap<String, String>();
 			labels.put("job-name", jobName);
