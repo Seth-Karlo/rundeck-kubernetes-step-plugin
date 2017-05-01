@@ -33,6 +33,7 @@ import com.dtolabs.rundeck.core.execution.workflow.steps.StepException;
 import com.dtolabs.rundeck.plugins.step.PluginStepContext;
 import com.dtolabs.rundeck.plugins.PluginLogger;
 
+import io.fabric8.kubernetes.api.model.*;
 import io.fabric8.kubernetes.client.Config;
 import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.DefaultKubernetesClient;
@@ -44,10 +45,7 @@ import static io.fabric8.kubernetes.client.Watcher.Action.ERROR;
 import io.fabric8.kubernetes.api.model.extensions.Job;
 import io.fabric8.kubernetes.api.model.extensions.JobBuilder;
 import io.fabric8.kubernetes.api.model.extensions.JobStatus;
-import io.fabric8.kubernetes.api.model.PodList;
-import io.fabric8.kubernetes.api.model.Pod;
-import io.fabric8.kubernetes.api.model.LocalObjectReference;
-import io.fabric8.kubernetes.api.model.Container;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -81,7 +79,7 @@ public class KubernetesStep implements StepPlugin, Describable {
 	public static final String RESTART_POLICY = "restartPolicy";
 	public static final String COMPLETIONS = "completions";
 	public static final String PARALLELISM = "parallelism";
-	public static final String PVCNAME = "pvcName";
+	public static final String PVCNAME = "persistentVolume";
 	public static final String SECRETNAME = "secretName";
 
 	public static enum Reason implements FailureReason {
@@ -106,8 +104,8 @@ public class KubernetesStep implements StepPlugin, Describable {
 	    	.property(PropertyUtil.select(RESTART_POLICY, "Restart policy", "The restart policy to apply to the job", true, "Never", Arrays.asList("Never", "OnFailure")))
 	    	.property(PropertyUtil.integer(COMPLETIONS, "Completions", "Number of pods to wait for success exit before considering the job complete", true, "1"))
 		    .property(PropertyUtil.integer(PARALLELISM, "Parallelism", "Number of pods running at any instant", true, "1"))
-	    	.property(PropertyUtil.string(PVCNAME, ":PVC Name", "The name of the PVC to use in this job", true, null))
-            .property(PropertyUtil.string(SECRETNAME, "Secret name", "The name of the kubernetes secret to add to /root/.aws", true, null))
+	    	.property(PropertyUtil.string(PVCNAME, "PVC Name", "The name of the PVC to use in this job in format <name>,<mountpath>", true, null))
+            .property(PropertyUtil.string(SECRETNAME, "Secret name", "The name of the kubernetes secret in format <name>,<mountpath>", true, null))
             .build();
 
 	public Description getDescription() {
@@ -119,12 +117,10 @@ public class KubernetesStep implements StepPlugin, Describable {
 		Config clientConfiguration = new ConfigBuilder().withWatchReconnectLimit(2).build();
 		try (KubernetesClient client = new DefaultKubernetesClient(clientConfiguration)) {
 			String jobName = context.getDataContext().get("job").get("name").toString().toLowerCase() + "-" + context.getDataContext().get("job").get("execid");
-			String pvcName = configuration.get("pvcName").toString().toLowerCase();
-			String dataVolumeName = "datavolume";
-			String secretVolumeName = "secretvolume";
 			String namespace = configuration.get("namespace").toString();
 			Map<String, String> labels = new HashMap<String, String>();
 			labels.put("job-name", jobName);
+
 
 			JobBuilder jobBuilder = new JobBuilder()
 				.withNewMetadata()
@@ -146,23 +142,58 @@ public class KubernetesStep implements StepPlugin, Describable {
 							.addNewContainer()
 								.withName(jobName)
 								.withImage(configuration.get("image").toString())
-								.addNewVolumeMount("/root/.aws", secretVolumeName, false, "")
-								.addNewVolumeMount("/data", dataVolumeName, false, "")
 							.endContainer()
-							.addNewVolume()
-								.withName(dataVolumeName)
-								.withNewPersistentVolumeClaim(pvcName, false)
-							.endVolume()
-							.addNewVolume()
-								.withName(secretVolumeName)
-								.withNewSecret()
-									.withSecretName(configuration.get("secretName").toString())
-								.endSecret()
-							.endVolume()
 						.endSpec()
 					.endTemplate()
 				.endSpec();
-
+			if(null != configuration.get("persistentVolume")) {
+				String persistentVolumeArray[] = configuration.get("persistentVolume").toString().split("\\s*,\\s*");
+				String persistentVolumeName = persistentVolumeArray[0];
+				String persistentVolumeMountPath = persistentVolumeArray[1];
+				Container container = jobBuilder.getSpec().getTemplate().getSpec().getContainers().get(0);
+				VolumeMount allVolumeMounts = jobBuilder.getSpec().getTemplate().getSpec().getContainers().get(0).getVolumeMounts().get(0);
+				VolumeMount volume = new VolumeMount(persistentVolumeMountPath,persistentVolumeName,Boolean.FALSE, null);
+				List volumeList = new ArrayList();
+				volumeList.add(allVolumeMounts);
+				volumeList.add(volume);
+				container.setVolumeMounts(volumeList);
+				jobBuilder
+						.editSpec()
+							.editTemplate()
+								.editSpec()
+									.addNewVolume()
+										.withName("datavolume")
+										.withNewPersistentVolumeClaim(persistentVolumeName, false)
+									.endVolume()
+									.withContainers(container)
+								.endSpec()
+							.endTemplate()
+						.endSpec();
+			}
+			if(null != configuration.get("secretName")) {
+				String secretVolumeArray[] = configuration.get("secretName").toString().split("\\s*,\\s*");
+				String secretVolumeName = secretVolumeArray[0];
+				String secretVolumeMountPath = secretVolumeArray[1];
+				Container container = jobBuilder.getSpec().getTemplate().getSpec().getContainers().get(0);
+				VolumeMount allVolumeMounts = jobBuilder.getSpec().getTemplate().getSpec().getContainers().get(0).getVolumeMounts().get(0);
+				VolumeMount volume = new VolumeMount(secretVolumeMountPath,secretVolumeName,Boolean.FALSE, null);
+				List volumeList = new ArrayList();
+				volumeList.add(allVolumeMounts);
+				volumeList.add(volume);
+				container.setVolumeMounts(volumeList);
+				jobBuilder
+						.editSpec()
+							.editTemplate()
+								.editSpec()
+									.addNewVolume()
+										.withName("secretvolume")
+										.withNewPersistentVolumeClaim(secretVolumeMountPath, false)
+									.endVolume()
+									.withContainers(container)
+								.endSpec()
+							.endTemplate()
+						.endSpec();
+			}
 			Long activeDeadlineSeconds = null;
 			if(null != configuration.get("activeDeadlineSeconds")){
 				activeDeadlineSeconds = Long.valueOf(configuration.get("activeDeadlineSeconds").toString());
