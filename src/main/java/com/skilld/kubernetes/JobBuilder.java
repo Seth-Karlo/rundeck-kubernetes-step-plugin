@@ -24,8 +24,9 @@ package com.skilld.kubernetes;
 
 import com.skilld.kubernetes.JobConfiguration;
 
-import io.fabric8.kubernetes.api.model.*;
-import io.fabric8.kubernetes.api.model.extensions.Job;
+import io.fabric8.kubernetes.api.model.Job;
+import io.fabric8.kubernetes.api.model.Container;
+import io.fabric8.kubernetes.api.model.VolumeMount;
 
 import java.util.List;
 import java.util.Map;
@@ -33,7 +34,7 @@ import java.util.HashMap;
 
 public class JobBuilder {
 	public static Job build(JobConfiguration configuration) {
-		io.fabric8.kubernetes.api.model.extensions.JobBuilder jobBuilder = new io.fabric8.kubernetes.api.model.extensions.JobBuilder()
+		io.fabric8.kubernetes.api.model.JobBuilder jobBuilder = new io.fabric8.kubernetes.api.model.JobBuilder()
 			.withNewMetadata()
 				.withName(configuration.getName())
 				.withNamespace(configuration.getNamespace())
