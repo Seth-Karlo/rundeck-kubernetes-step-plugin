@@ -24,9 +24,8 @@ package com.skilld.kubernetes;
 
 import com.skilld.kubernetes.JobConfiguration;
 
+import io.fabric8.kubernetes.api.model.*;
 import io.fabric8.kubernetes.api.model.Job;
-import io.fabric8.kubernetes.api.model.Container;
-import io.fabric8.kubernetes.api.model.VolumeMount;
 
 import java.util.List;
 import java.util.Map;
