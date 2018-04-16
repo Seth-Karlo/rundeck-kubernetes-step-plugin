@@ -124,7 +124,7 @@ public class KubernetesStep implements StepPlugin, Describable {
 		.property(PropertyUtil.integer(COMPLETIONS, "Completions", "Number of pods to wait for success exit before considering the job complete", true, "1"))
 		.property(PropertyUtil.integer(PARALLELISM, "Parallelism", "Number of pods running at any instant", true, "1"))
 		.property(PropertyUtil.string(PERSISTENT_VOLUME, "Persistent Volume", "The name of the PVC to use in this job in format <name>;<mountpath>", false, null))
-		.property(PropertyUtil.string(SECRET, "Secret", "The name of the kubernetes secret in format <name>;<mountpath>", false, null))
+		.property(PropertyUtil.string(SECRET, "Secret", "The name of the kubernetes secret in format <name>;<mountpath>. Multiple secrets can be set by using a space such as <name>;<mountpath> <name2>;<mountpath2>", false, null))
 		.property(PropertyUtil.string(RESOURCE_REQUESTS, "Resource Requests", "Request resources in format cpu:4 memory:24Gi", false, null))
         .property(PropertyUtil.string(LABELS, "Labels", "The labels to set on the jobs. Labels are separated by '" + LABELSEPARATOR + "', keys and values by a '" + LABELKVSEPARATOR + "'. "
 				+ "Example: 'foo" + LABELKVSEPARATOR + "bar" + LABELSEPARATOR + "a" + LABELKVSEPARATOR + "b'. See https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set for "
@@ -205,8 +205,10 @@ public class KubernetesStep implements StepPlugin, Describable {
 			}
 			if(null != configuration.get(SECRET)) {
 				try {
-					String secretVolumeArray[] = configuration.get(SECRET).toString().split("\\s*;\\s*");
-					jobConfiguration.setSecret(secretVolumeArray[0], secretVolumeArray[1], context.getDataContextObject().get("option"));
+					for (String secretRequest: configuration.get(SECRET).toString().split(" ")) {
+						String secretVolumeArray[] = secretRequest.split("\\s*;\\s*");
+						jobConfiguration.setSecret(secretVolumeArray[0], secretVolumeArray[1], context.getDataContextObject().get("option"));
+					}
 				}
 				catch (ArrayIndexOutOfBoundsException e) {
 					logger.error("Invalid format for " + SECRET, e);
